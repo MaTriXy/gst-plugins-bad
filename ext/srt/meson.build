@@ -1,6 +1,7 @@
 srt_sources = [
   'gstsrt.c',
   'gstsrtclientsrc.c',
+  'gstsrtserversink.c',
 ]
 
 srt_dep = dependency('libsrt', required : false)

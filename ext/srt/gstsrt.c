@@ -21,13 +21,59 @@
 #include "config.h"
 #endif
 
+#include "gstsrt.h"
 #include "gstsrtclientsrc.h"
+#include "gstsrtserversink.h"
+
+#include <srt/srt.h>
+
+GstSRTClient *
+gst_srt_client_new (int sock, GInetAddress * addr)
+{
+  GstSRTClient *client;
+  g_return_val_if_fail ((sock != -1) && (addr != NULL), NULL);
+
+  client = g_new0 (GstSRTClient, 1);
+  client->ref_count = 1;
+  client->sock = sock;
+  client->addr = g_object_ref (addr);
+
+  return client;
+}
+
+GstSRTClient *
+gst_srt_client_ref (GstSRTClient * client)
+{
+  g_return_val_if_fail (client != NULL, NULL);
+
+  client->ref_count++;
+  return client;
+}
+
+void
+gst_srt_client_unref (GstSRTClient * client)
+{
+  g_return_if_fail (client != NULL);
+
+  client->ref_count--;
+
+  if (client->ref_count > 0)
+    return;
+
+  g_clear_object (&client->addr);
+  srt_close (client->sock);
+  g_free (client);
+}
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
   if (!gst_element_register (plugin, "srtclientsrc", GST_RANK_PRIMARY,
           GST_TYPE_SRT_CLIENT_SRC))
+    return FALSE;
+
+  if (!gst_element_register (plugin, "srtserversink", GST_RANK_PRIMARY,
+          GST_TYPE_SRT_SERVER_SINK))
     return FALSE;
 
   return TRUE;

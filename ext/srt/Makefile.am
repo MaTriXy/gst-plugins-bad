@@ -4,6 +4,8 @@ libgstsrt_la_SOURCES = \
 	gstsrt.c \
 	gstsrtclientsrc.c \
 	gstsrtclientsrc.h \
+	gstsrtserversink.c \
+	gstsrtserversink.h \
 	$(NULL)
 
 libgstsrt_la_CFLAGS = \
