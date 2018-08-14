@@ -54,10 +54,18 @@ GST_DEBUG_CATEGORY_STATIC (gst_rtmp_sink_debug);
 
 #define DEFAULT_LOCATION NULL
 
+static const AVal av_timeout = { (char *) "timeout", 7 };
+
+#define STR2AVAL(av,str) G_STMT_START { \
+  av.av_val = str; \
+  av.av_len = strlen(av.av_val); \
+} G_STMT_END;
+
 enum
 {
   PROP_0,
-  PROP_LOCATION
+  PROP_LOCATION,
+  PROP_DROP_WHEN_DISCONNECTED
 };
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -84,6 +92,24 @@ G_DEFINE_TYPE_WITH_CODE (GstRTMPSink, gst_rtmp_sink, GST_TYPE_BASE_SINK,
     G_IMPLEMENT_INTERFACE (GST_TYPE_URI_HANDLER,
         gst_rtmp_sink_uri_handler_init));
 
+static gboolean
+gst_rtmp_sink_reset_rtmp (GstRTMPSink * sink)
+{
+  RTMP_Close (sink->rtmp);
+
+  RTMP_Init (sink->rtmp);
+  if (!RTMP_SetupURL (sink->rtmp, sink->rtmp_uri)) {
+    GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE, (NULL),
+        ("Failed to setup URL '%s'", sink->uri));
+    return FALSE;
+  }
+  RTMP_EnableWrite (sink->rtmp);
+
+  sink->first = TRUE;
+
+  return TRUE;
+}
+
 /* initialize the plugin's class */
 static void
 gst_rtmp_sink_class_init (GstRTMPSinkClass * klass)
@@ -103,6 +129,12 @@ gst_rtmp_sink_class_init (GstRTMPSinkClass * klass)
   g_object_class_install_property (gobject_class, PROP_LOCATION,
       g_param_spec_string ("location", "RTMP Location", "RTMP url",
           DEFAULT_LOCATION, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_DROP_WHEN_DISCONNECTED,
+      g_param_spec_boolean ("drop-when-disconnected",
+          "Drop buffers when disconnected",
+          "Drop buffers when disconnected to retry connection", FALSE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "RTMP output sink",
@@ -134,6 +166,8 @@ gst_rtmp_sink_init (GstRTMPSink * sink)
     GST_ERROR_OBJECT (sink, "WSAStartup failed: 0x%08x", WSAGetLastError ());
   }
 #endif
+
+  sink->drop_when_disconnected = FALSE;
 }
 
 static void
@@ -225,6 +259,8 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
   gboolean need_unref = FALSE;
   GstMapInfo map = GST_MAP_INFO_INIT;
 
+  AVal val;
+
   if (sink->rtmp == NULL) {
     /* Do not crash */
     GST_ELEMENT_ERROR (sink, RESOURCE, WRITE, (NULL), ("Failed to write data"));
@@ -241,6 +277,15 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
     if (!RTMP_IsConnected (sink->rtmp)) {
       if (!RTMP_Connect (sink->rtmp, NULL)
           || !RTMP_ConnectStream (sink->rtmp, 0)) {
+
+        if (sink->drop_when_disconnected) {
+          GST_DEBUG_OBJECT (sink, "Failed to connect, but retry connection");
+
+          gst_rtmp_sink_reset_rtmp (sink);
+
+          return GST_FLOW_OK;
+        }
+
         GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE, (NULL),
             ("Could not connect to RTMP stream \"%s\" for writing", sink->uri));
         RTMP_Free (sink->rtmp);
@@ -252,6 +297,9 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
       }
       GST_DEBUG_OBJECT (sink, "Opened connection to %s", sink->rtmp_uri);
     }
+
+    STR2AVAL (val, "1")
+        RTMP_SetOpt (sink->rtmp, &av_timeout, &val);
 
     /* Prepend the header from the caps to the first non header buffer */
     if (sink->header) {
@@ -271,8 +319,13 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
 
   gst_buffer_map (buf, &map, GST_MAP_READ);
 
-  if (RTMP_Write (sink->rtmp, (char *) map.data, map.size) <= 0)
-    goto write_failed;
+  if (RTMP_Write (sink->rtmp, (char *) map.data, map.size) <= 0) {
+    if (!sink->drop_when_disconnected) {
+      goto write_failed;
+    }
+    GST_DEBUG_OBJECT (sink, "Failed to write over rtmp, but retry connection");
+    gst_rtmp_sink_reset_rtmp (sink);
+  }
 
   gst_buffer_unmap (buf, &map);
   if (need_unref)
@@ -382,6 +435,9 @@ gst_rtmp_sink_set_property (GObject * object, guint prop_id,
   GstRTMPSink *sink = GST_RTMP_SINK (object);
 
   switch (prop_id) {
+    case PROP_DROP_WHEN_DISCONNECTED:
+      sink->drop_when_disconnected = g_value_get_boolean (value);
+      break;
     case PROP_LOCATION:
       gst_rtmp_sink_uri_set_uri (GST_URI_HANDLER (sink),
           g_value_get_string (value), NULL);
@@ -470,6 +526,9 @@ gst_rtmp_sink_get_property (GObject * object, guint prop_id,
   GstRTMPSink *sink = GST_RTMP_SINK (object);
 
   switch (prop_id) {
+    case PROP_DROP_WHEN_DISCONNECTED:
+      g_value_set_boolean (value, sink->drop_when_disconnected);
+      break;
     case PROP_LOCATION:
       g_value_set_string (value, sink->uri);
       break;
