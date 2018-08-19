@@ -56,6 +56,8 @@ struct _GstRTMPSink {
   GstBuffer *header;
   gboolean first;
   gboolean have_write_error;
+
+  gboolean drop;
 };
 
 struct _GstRTMPSinkClass {

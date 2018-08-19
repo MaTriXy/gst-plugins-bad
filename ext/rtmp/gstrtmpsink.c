@@ -57,7 +57,8 @@ GST_DEBUG_CATEGORY_STATIC (gst_rtmp_sink_debug);
 enum
 {
   PROP_0,
-  PROP_LOCATION
+  PROP_LOCATION,
+  PROP_DROP
 };
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -84,6 +85,24 @@ G_DEFINE_TYPE_WITH_CODE (GstRTMPSink, gst_rtmp_sink, GST_TYPE_BASE_SINK,
     G_IMPLEMENT_INTERFACE (GST_TYPE_URI_HANDLER,
         gst_rtmp_sink_uri_handler_init));
 
+static gboolean
+gst_rtmp_sink_reset_rtmp (GstRTMPSink * sink)
+{
+  RTMP_Close (sink->rtmp);
+
+  RTMP_Init (sink->rtmp);
+  if (!RTMP_SetupURL (sink->rtmp, sink->rtmp_uri)) {
+    GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE, (NULL),
+        ("Failed to setup URL '%s'", sink->uri));
+    return FALSE;
+  }
+  RTMP_EnableWrite (sink->rtmp);
+
+  sink->first = TRUE;
+
+  return TRUE;
+}
+
 /* initialize the plugin's class */
 static void
 gst_rtmp_sink_class_init (GstRTMPSinkClass * klass)
@@ -103,6 +122,10 @@ gst_rtmp_sink_class_init (GstRTMPSinkClass * klass)
   g_object_class_install_property (gobject_class, PROP_LOCATION,
       g_param_spec_string ("location", "RTMP Location", "RTMP url",
           DEFAULT_LOCATION, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_DROP,
+      g_param_spec_boolean ("drop", "drop", "drop",
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "RTMP output sink",
@@ -134,6 +157,8 @@ gst_rtmp_sink_init (GstRTMPSink * sink)
     GST_ERROR_OBJECT (sink, "WSAStartup failed: 0x%08x", WSAGetLastError ());
   }
 #endif
+
+  sink->drop = FALSE;
 }
 
 static void
@@ -224,6 +249,10 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
   GstRTMPSink *sink = GST_RTMP_SINK (bsink);
   gboolean need_unref = FALSE;
   GstMapInfo map = GST_MAP_INFO_INIT;
+
+  if (g_atomic_int_get (&sink->drop)) {
+    return GST_FLOW_OK;
+  }
 
   if (sink->rtmp == NULL) {
     /* Do not crash */
@@ -386,6 +415,10 @@ gst_rtmp_sink_set_property (GObject * object, guint prop_id,
       gst_rtmp_sink_uri_set_uri (GST_URI_HANDLER (sink),
           g_value_get_string (value), NULL);
       break;
+    case PROP_DROP:
+      g_atomic_int_set (&sink->drop, g_value_get_boolean (value));
+      gst_rtmp_sink_reset_rtmp (sink);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -472,6 +505,9 @@ gst_rtmp_sink_get_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_LOCATION:
       g_value_set_string (value, sink->uri);
+      break;
+    case PROP_DROP:
+      g_value_set_boolean (value, g_atomic_int_get (&sink->drop));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
