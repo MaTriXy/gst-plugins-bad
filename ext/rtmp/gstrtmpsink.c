@@ -312,12 +312,20 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
   /* ERRORS */
 write_failed:
   {
-    GST_ELEMENT_ERROR (sink, RESOURCE, WRITE, (NULL), ("Failed to write data"));
     gst_buffer_unmap (buf, &map);
     if (need_unref)
       gst_buffer_unref (buf);
-    sink->have_write_error = TRUE;
-    return GST_FLOW_ERROR;
+
+    if (!g_atomic_int_get (&sink->drop)) {
+      GST_ELEMENT_ERROR (sink, RESOURCE, WRITE, (NULL),
+          ("Failed to write data"));
+      sink->have_write_error = TRUE;
+      return GST_FLOW_ERROR;
+    } else {
+      GST_DEBUG_OBJECT (sink, "Ignore writing error");
+      sink->have_write_error = FALSE;
+      return GST_FLOW_OK;
+    }
   }
 }
 
