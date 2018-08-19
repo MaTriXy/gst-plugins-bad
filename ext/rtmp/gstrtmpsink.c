@@ -101,6 +101,8 @@ gst_rtmp_sink_reset_rtmp (GstRTMPSink * sink)
 
   sink->first = TRUE;
 
+  GST_DEBUG_OBJECT (sink, "Reset RTMP object");
+
   return TRUE;
 }
 
@@ -332,6 +334,7 @@ write_failed:
     } else {
       GST_DEBUG_OBJECT (sink, "Ignore writing error");
       sink->have_write_error = FALSE;
+      sink->first = TRUE;
       return GST_FLOW_OK;
     }
   }
