@@ -415,9 +415,20 @@ gst_rtmp_sink_set_property (GObject * object, guint prop_id,
       gst_rtmp_sink_uri_set_uri (GST_URI_HANDLER (sink),
           g_value_get_string (value), NULL);
       break;
-    case PROP_DROP:
+    case PROP_DROP:{
+      gboolean v = g_value_get_boolean (value);
+      if (g_atomic_int_get (&sink->drop)) {
+        if (!v) {
+          /* TRUE to FALSE */
+        }
+      } else {
+        if (v) {
+          /* FALSE to TRUE */
+          gst_rtmp_sink_reset_rtmp (sink);
+        }
+      }
       g_atomic_int_set (&sink->drop, g_value_get_boolean (value));
-      gst_rtmp_sink_reset_rtmp (sink);
+    }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
