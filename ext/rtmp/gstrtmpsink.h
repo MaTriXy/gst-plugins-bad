@@ -58,6 +58,7 @@ struct _GstRTMPSink {
   gboolean have_write_error;
 
   gboolean drop;
+  gboolean drop_when_disconnected;
 };
 
 struct _GstRTMPSinkClass {

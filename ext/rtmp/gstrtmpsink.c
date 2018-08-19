@@ -58,7 +58,8 @@ enum
 {
   PROP_0,
   PROP_LOCATION,
-  PROP_DROP
+  PROP_DROP,
+  PROP_DROP_WHEN_DISCONNECTED
 };
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -127,6 +128,12 @@ gst_rtmp_sink_class_init (GstRTMPSinkClass * klass)
       g_param_spec_boolean ("drop", "drop", "drop",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_DROP_WHEN_DISCONNECTED,
+      g_param_spec_boolean ("drop-when-disconnected",
+          "Drop buffers when disconnected",
+          "Drop buffers when disconnected to retry connection", FALSE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   gst_element_class_set_static_metadata (gstelement_class,
       "RTMP output sink",
       "Sink/Network", "Sends FLV content to a server via RTMP",
@@ -159,6 +166,7 @@ gst_rtmp_sink_init (GstRTMPSink * sink)
 #endif
 
   sink->drop = FALSE;
+  sink->drop_when_disconnected = FALSE;
 }
 
 static void
@@ -316,7 +324,7 @@ write_failed:
     if (need_unref)
       gst_buffer_unref (buf);
 
-    if (!g_atomic_int_get (&sink->drop)) {
+    if (!sink->drop_when_disconnected) {
       GST_ELEMENT_ERROR (sink, RESOURCE, WRITE, (NULL),
           ("Failed to write data"));
       sink->have_write_error = TRUE;
@@ -438,6 +446,9 @@ gst_rtmp_sink_set_property (GObject * object, guint prop_id,
       g_atomic_int_set (&sink->drop, g_value_get_boolean (value));
     }
       break;
+    case PROP_DROP_WHEN_DISCONNECTED:
+      sink->drop_when_disconnected = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -527,6 +538,9 @@ gst_rtmp_sink_get_property (GObject * object, guint prop_id,
       break;
     case PROP_DROP:
       g_value_set_boolean (value, g_atomic_int_get (&sink->drop));
+      break;
+    case PROP_DROP_WHEN_DISCONNECTED:
+      g_value_set_boolean (value, sink->drop_when_disconnected);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
