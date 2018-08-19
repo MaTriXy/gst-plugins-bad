@@ -280,6 +280,13 @@ gst_rtmp_sink_render (GstBaseSink * bsink, GstBuffer * buf)
     if (!RTMP_IsConnected (sink->rtmp)) {
       if (!RTMP_Connect (sink->rtmp, NULL)
           || !RTMP_ConnectStream (sink->rtmp, 0)) {
+
+        if (sink->drop_when_disconnected) {
+          GST_DEBUG_OBJECT (sink, "Failed to connect, but retry connection");
+          gst_rtmp_sink_reset_rtmp (sink);
+          return GST_FLOW_OK;
+        }
+
         GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE, (NULL),
             ("Could not connect to RTMP stream \"%s\" for writing", sink->uri));
         RTMP_Free (sink->rtmp);
